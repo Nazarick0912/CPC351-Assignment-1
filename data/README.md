@@ -51,6 +51,20 @@ P9 (40, 120), and P10 (100, 120).
 Synthetic development data must be identified as synthetic and kept separate
 from any supplied or grading data.
 
+The Q2(a) prototype's synthetic development CSV is
+`data/synthetic/q2/ahmad_travel_logs.csv`. It contains eight records for each
+directed route under all combinations of Clear, Rainy, and Storm weather and
+Morning, Afternoon, and Evening. P3 to P8 is intentionally blocked during Rainy
+Morning: its eight records contain only `NA` and `-1`, so the prototype assigns
+that route the severe penalty. It also includes one Rainy Morning record with
+an unlisted origin coordinate to demonstrate that such rows are removed before
+aggregation. This is a demonstration case, not a supplied or grading dataset.
+
+The prototype writes its cleaned synthetic rows to
+`data/processed/q2/ahmad_travel_logs_filtered.csv`. This file contains only
+Rainy Morning records with listed endpoints and valid, non-negative travel
+times; generated processed data is ignored by Git.
+
 ## Derived data
 
 Use `processed/q1/` and `processed/q2/` for cleaned or aggregated datasets.

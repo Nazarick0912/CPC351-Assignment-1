@@ -18,11 +18,13 @@ the assignment algorithms are still pending.
 | --- | --- |
 | `code/` | Runner, shared helpers, Q1/Q2 modules, and learning examples |
 | `data/raw/` | Original inputs and file hashes |
+| `data/synthetic/` | Clearly labeled development-only inputs |
 | `data/processed/` | Generated cleaned data |
 | `outputs/` | Generated tables, schedules, routes, and figures |
 | `submission/` | Final PDF export and assignment package |
 
-Generated data, outputs, and submission artifacts are ignored by Git.
+Generated outputs and submission artifacts are ignored by Git. Synthetic
+development inputs are kept separate from raw and grading data.
 
 ## Run
 

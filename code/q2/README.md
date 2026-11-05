@@ -2,22 +2,38 @@
 
 ## Current status
 
-- **Q2(a) (Data cleaning & 75th-percentile cost matrix)**: Pending. `main.R` validates the 7 required CSV columns when a file is present and skips cleanly when the file is absent.
-- **Q2(b) (Nearest Neighbour routing)**: Implemented in `code/q2/nearest_neighbour.R`, with standalone unit tests in `code/q2/test_nearest_neighbour.R` and an explicitly separated synthetic demonstration in `code/q2/synthetic_demo.R`.
+- **Q2(a) (Data cleaning & 75th-percentile cost matrix)**: Implemented in
+  `code/q2/q2a_cost_matrix.R`. Reads raw travel logs, filters for Rainy Morning,
+  validates coordinates, cleans road closure records (`NA` and `-1`), calculates
+  the 75th percentile per directed route, assigns severe penalties, and outputs
+  the cost matrix, filtered log, and heatmap.
+- **Q2(b) (Nearest Neighbour routing)**: Implemented in
+  `code/q2/nearest_neighbour.R`. Solves the Hamiltonian tour from any starting
+  point (default `P1`), visits all points, handles deterministic tie-breaking,
+  adds the closing return edge, tracks penalties, and formats output summaries.
+  Verified by 10 unit test suites in `code/q2/test_nearest_neighbour.R` and a
+  standalone in-memory demonstration in `code/q2/synthetic_demo.R`.
+- **End-to-end pipeline integration**: Pending. `code/run.R q2` currently
+  performs baseline schema checks. Connecting `q2a_cost_matrix.R` directly into
+  `nearest_neighbour.R` in the shared runner is scheduled for the next stage.
 
 ## Commands
 
 Run from the repository root:
 
 ```powershell
-# Normal pipeline runner (never substitutes synthetic data when input or Q2(a) is missing)
+# Project baseline runner (schema check)
 Rscript code/run.R q2
 Rscript code/run.R q2 "C:/path/to/ahmad_travel_logs.csv"
 
-# Run Q2(b) unit and integration tests (10 test suites)
+# Q2(a) prototype: builds cost matrix, filtered logs, and heatmap
+Rscript code/q2/q2a_cost_matrix.R
+Rscript code/q2/q2a_cost_matrix.R "C:/path/to/ahmad_travel_logs.csv"
+
+# Q2(b) test suite (10 unit & integration test suites)
 Rscript code/q2/test_nearest_neighbour.R
 
-# Run standalone 10-point synthetic Q2(b) demonstration and export synthetic CSVs to outputs/q2/
+# Q2(b) standalone in-memory synthetic demonstration
 Rscript code/q2/synthetic_demo.R
 ```
 
@@ -37,7 +53,27 @@ result <- run_q2b_routing(
 )
 ```
 
-For smaller test fixtures ($N \ge 2$), call `run_nearest_neighbour(cost_matrix, start_point = "P1", penalty_matrix = NULL)`.
+For smaller test fixtures ($N \ge 2$), call:
+`run_nearest_neighbour(cost_matrix, start_point = "P1", penalty_matrix = NULL)`.
+
+## Q2(a) Data Cleaning and Severe Penalty Calculation
+
+The Q2(a) script filters rows where `Weather == "Rainy"` and `Time_of_Day == "Morning"`,
+retaining records whose coordinates match the 10 assigned points and whose travel
+times are non-negative and non-missing. Cleaned records are saved to
+`data/processed/q2/ahmad_travel_logs_filtered.csv`.
+
+For each directed pair $(P_i, P_j)$, the 75th percentile travel time is computed.
+If a route has no valid travel history (all records missing, closures, or
+unobserved), it is assigned a severe penalty:
+
+```text
+penalty = 11 * M + 1 minute
+```
+where `M` is the maximum valid observed route cost in the matrix. Because a
+valid 10-point tour consists of 10 legs with total cost at most $10 \times M$,
+a single penalty edge ($11 \times M + 1$) costs more than any conceivable
+all-valid tour, making impassable routes strongly discouraged.
 
 ## Q2(a) -> Q2(b) Integration Contract
 
@@ -45,16 +81,27 @@ To connect Q2(a) directly to Q2(b):
 
 1. **Cost Matrix (`cost_matrix`)**:
    - Base R numeric `10 x 10` matrix (`is.matrix(M) && is.numeric(M)`).
-   - Rows represent **origins** (`Origin_X`, `Origin_Y`); columns represent **destinations** (`Dest_X`, `Dest_Y`).
-   - `rownames(M)` and `colnames(M)` must match in the same order and contain all 10 points `P1, P2, ..., P10`.
-   - Off-diagonal entries must be finite and nonnegative (`>= 0`), representing the 75th-percentile `Travel_Time_Minutes` under `Weather == "Rainy"` and `Time_of_Day == "Morning"`, or a finite penalty value for impassable/unobserved routes.
-   - Diagonal entries (`Pi -> Pi`) are ignored during candidate selection (recommended value: `0`).
+   - Rows represent **origins**; columns represent **destinations**.
+   - `rownames(M)` and `colnames(M)` must match in the same order and contain
+     all 10 points `P1, P2, ..., P10`.
+   - Off-diagonal entries must be finite and nonnegative (`>= 0`).
+   - Diagonal entries (`Pi -> Pi`) represent self-travel and are set to `0`.
 
 2. **Penalty Metadata (`penalty_matrix`)**:
-   - A `10 x 10` logical matrix (`TRUE`/`FALSE`) with row and column names aligned to `cost_matrix`, where `TRUE` indicates that the directed route had no valid rainy-morning travel history and was assigned an artificial penalty cost.
-   - May be supplied either as `list(cost_matrix = M, penalty_matrix = P)`, via the `penalty_matrix` argument, or attached as `attr(M, "penalty_matrix") <- P`.
-   - If omitted (`NULL`), Q2(b) reports penalty status as `"unknown"` rather than guessing from a cost threshold.
+   - A `10 x 10` logical matrix (`TRUE`/`FALSE`) with matching row and column
+     names, where `TRUE` marks impassable routes assigned artificial penalties.
+   - May be passed via the `penalty_matrix` argument or as an attribute
+     `attr(M, "penalty_matrix")`. If omitted, penalty status is reported as
+     `"unknown"`.
 
 3. **Automatic Pipeline Hook**:
-   - Define `build_q2a_cost_matrix <- function(input_path)` in `code/q2/` returning either `list(cost_matrix = M, penalty_matrix = P)` or `M` (with `attr(M, "penalty_matrix")`).
-   - `inspect_q2_inputs()` in `code/q2/main.R` automatically detects `build_q2a_cost_matrix`, executes it on `input_path`, and passes the result to `run_q2b_from_q2a()`.
+   - Wrap the Q2(a) logic in a function `build_q2a_cost_matrix(input_path)`
+     returning `list(cost_matrix = M, penalty_matrix = P)` or `M`.
+   - `inspect_q2_inputs()` in `code/q2/main.R` will automatically execute
+     Q2(a) and pass its matrix directly to `run_q2b_from_q2a()`.
+
+Write cleaned or aggregated data to `data/processed/q2/` and cost matrices,
+route summaries, validation output, and figures to `outputs/q2/`. Insert selected
+results into the Question 2 section of the
+[shared Google Docs report](https://docs.google.com/document/d/1GAB7_rqw0hhjneBch7KhtM-GNt_AlFTzSP1gphYUyOE/edit?usp=drive_link)
+and explain the cleaning, penalties, and route selection there.
