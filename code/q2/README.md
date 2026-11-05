@@ -94,11 +94,11 @@ To connect Q2(a) directly to Q2(b):
      `attr(M, "penalty_matrix")`. If omitted, penalty status is reported as
      `"unknown"`.
 
-3. **Automatic Pipeline Hook**:
-   - Wrap the Q2(a) logic in a function `build_q2a_cost_matrix(input_path)`
-     returning `list(cost_matrix = M, penalty_matrix = P)` or `M`.
-   - `inspect_q2_inputs()` in `code/q2/main.R` will automatically execute
-     Q2(a) and pass its matrix directly to `run_q2b_from_q2a()`.
+3. **Function Interface & Pipeline Integration**:
+   - `code/q2/q2a_cost_matrix.R` defines `build_q2a_cost_matrix(input_path, points = NULL)`
+     returning `list(cost_matrix = M, penalty_matrix = P, penalty_value = V, ...)`.
+   - Connecting `build_q2a_cost_matrix()` into the shared runner `code/run.R`
+     and `code/q2/main.R` is scheduled for Stage 4.
 
 Write cleaned or aggregated data to `data/processed/q2/` and cost matrices,
 route summaries, validation output, and figures to `outputs/q2/`. Insert selected
