@@ -254,7 +254,14 @@ run_nearest_neighbour <- function(cost_matrix,
     rownames(penalized_edges) <- NULL
     used_penalty <- nrow(penalized_edges) > 0L
     overall_penalty_status <- if (used_penalty) "penalized" else "none"
-    total_cost_label <- if (used_penalty) {
+    has_history <- attr(cost_matrix, "has_usable_history", exact = TRUE)
+    total_cost_label <- if (identical(has_history, FALSE)) {
+      paste0(
+        "Total matrix cost consists entirely of artificial fallback penalties ",
+        "(NO usable historical travel times exist under Rainy Morning conditions); ",
+        "NOT a physically verified travel-time estimate."
+      )
+    } else if (used_penalty) {
       paste0(
         "Total matrix cost includes artificial penalty costs (",
         nrow(penalized_edges),

@@ -13,27 +13,53 @@
   adds the closing return edge, tracks penalties, and formats output summaries.
   Verified by 10 unit test suites in `code/q2/test_nearest_neighbour.R` and a
   standalone in-memory demonstration in `code/q2/synthetic_demo.R`.
-- **End-to-end pipeline integration**: Pending. `code/run.R q2` currently
-  performs baseline schema checks. Connecting `q2a_cost_matrix.R` directly into
-  `nearest_neighbour.R` in the shared runner is scheduled for the next stage.
+- **End-to-end pipeline integration**: Connected. Running `code/run.R q2`
+  executes the complete sequence: raw travel logs -> Q2(a) cleaning & 75th-percentile
+  cost matrix -> Q2(b) Nearest Neighbour routing -> artifact exports.
+  Strict input selection is enforced: default input skips honestly when absent,
+  and synthetic development data must be requested explicitly.
+
+## Input Selection Policy
+
+- **Default Execution (`Rscript code/run.R q2`)**: Searches for the real grading dataset
+  at `data/raw/q2/ahmad_travel_logs.csv`. If absent, skips cleanly and reports missing input;
+  **never silently substitutes synthetic dummy data**.
+- **Explicit CSV Path**: Pass any travel log explicitly, e.g.:
+  `Rscript code/run.R q2 "C:/path/to/ahmad_travel_logs.csv"`
+- **Explicit Synthetic Development Data**: Pass the synthetic log path:
+  `Rscript code/run.R q2 "data/synthetic/q2/ahmad_travel_logs.csv"`
+  When the synthetic fixture is used, results are clearly labeled in the console
+  and output files are prefixed with `synthetic_` so they cannot be mistaken
+  for unseen grading data.
+- **Missing or Malformed Explicit Paths**: Raise immediate descriptive errors;
+  they are never masked by dummy data fallback.
+- **Standalone Q2(a) CLI (`code/q2/q2a_cost_matrix.R`)**: Enforces the same input policy
+  without automatic fallback.
 
 ## Commands
 
 Run from the repository root:
 
 ```powershell
-# Project baseline runner (schema check)
+# Project pipeline runner (default real input: skips honestly if absent)
 Rscript code/run.R q2
+
+# Run pipeline on a specified real/grading travel log
 Rscript code/run.R q2 "C:/path/to/ahmad_travel_logs.csv"
 
-# Q2(a) prototype: builds cost matrix, filtered logs, and heatmap
-Rscript code/q2/q2a_cost_matrix.R
-Rscript code/q2/q2a_cost_matrix.R "C:/path/to/ahmad_travel_logs.csv"
+# Run pipeline on the explicit development synthetic dataset
+Rscript code/run.R q2 "data/synthetic/q2/ahmad_travel_logs.csv"
 
-# Q2(a) test suite (12 unit & edge-case test suites)
+# Standalone Q2(a) runner (builds cost matrix, filtered log, and heatmap)
+Rscript code/q2/q2a_cost_matrix.R "data/synthetic/q2/ahmad_travel_logs.csv"
+
+# Pipeline integration & input-selection tests (6 test suites)
+Rscript code/q2/test_pipeline.R
+
+# Q2(a) cleaning & matrix tests (12 test suites)
 Rscript code/q2/test_q2a_cost_matrix.R
 
-# Q2(b) test suite (10 unit & integration test suites)
+# Q2(b) Nearest Neighbour unit tests (10 test suites)
 Rscript code/q2/test_nearest_neighbour.R
 
 # Q2(b) standalone in-memory synthetic demonstration
@@ -117,11 +143,11 @@ To connect Q2(a) directly to Q2(b):
      `attr(M, "penalty_matrix")`. If omitted, penalty status is reported as
      `"unknown"`.
 
-3. **Function Interface & Pipeline Integration**:
+3. **Pipeline Integration**:
    - `code/q2/q2a_cost_matrix.R` defines `build_q2a_cost_matrix(input_path, points = NULL)`
      returning `list(cost_matrix = M, penalty_matrix = P, penalty_value = V, ...)`.
-   - Connecting `build_q2a_cost_matrix()` into the shared runner `code/run.R`
-     and `code/q2/main.R` is scheduled for Stage 4.
+   - `code/q2/main.R` and `code/run.R` execute the complete sequence automatically:
+     raw CSV -> Q2(a) cleaning/cost matrix -> Q2(b) Nearest Neighbour routing -> CSV and plot exports.
 
 Write cleaned or aggregated data to `data/processed/q2/` and cost matrices,
 route summaries, validation output, and figures to `outputs/q2/`. Insert selected

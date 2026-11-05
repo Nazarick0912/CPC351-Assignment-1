@@ -1,5 +1,4 @@
-# Baseline runner. Usage: Rscript code/run.R [all|q1|q2] [travel_csv]
-# Scheduling, data cleaning, and routing will be added in the question modules.
+# Main assignment runner. Usage: Rscript code/run.R [all|q1|q2] [travel_csv]
 
 locate_project_root <- function() {
   file_argument <- grep("^--file=", commandArgs(), value = TRUE)
@@ -41,20 +40,25 @@ if (!mode %in% c("all", "q1", "q2") || length(arguments) > 2L ||
   stop("Usage: Rscript code/run.R [all|q1|q2] [travel_csv]", call. = FALSE)
 }
 
-travel_csv <- if (length(arguments) == 2L) {
+is_explicit_q2_csv <- length(arguments) == 2L
+travel_csv <- if (is_explicit_q2_csv) {
   path.expand(arguments[[2L]])
 } else {
   file.path(project_root, "data", "raw", "q2", "ahmad_travel_logs.csv")
 }
 
-message("Running baseline input checks. Assignment algorithms are still pending.")
-baseline_results <- list()
+message("Running assignment pipeline.")
+pipeline_results <- list()
 
 if (mode %in% c("all", "q1")) {
-  baseline_results$q1 <- inspect_q1_inputs(project_root)
+  pipeline_results$q1 <- inspect_q1_inputs(project_root)
 }
 if (mode %in% c("all", "q2")) {
-  baseline_results$q2 <- inspect_q2_inputs(project_root, travel_csv)
+  pipeline_results$q2 <- inspect_q2_inputs(
+    project_root,
+    travel_csv,
+    is_explicit = is_explicit_q2_csv
+  )
 }
 
-invisible(baseline_results)
+invisible(pipeline_results)

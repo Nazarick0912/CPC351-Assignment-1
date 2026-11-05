@@ -267,6 +267,7 @@ build_q2a_cost_matrix <- function(input_path,
   # Assign the high penalty to all routes without usable history
   cost_matrix[penalty_matrix] <- impassable_penalty
   attr(cost_matrix, "penalty_matrix") <- penalty_matrix
+  attr(cost_matrix, "has_usable_history") <- has_usable_history
 
   # Update route_metadata cost for penalized routes
   route_metadata$cost_minutes[route_metadata$is_penalized] <- impassable_penalty
@@ -311,14 +312,21 @@ build_q2a_cost_matrix <- function(input_path,
 export_q2a_artifacts <- function(q2a_result,
                                  output_dir = file.path("outputs", "q2"),
                                  processed_dir = file.path("data", "processed", "q2"),
+                                 prefix = "q2a",
                                  write_filtered_log = TRUE,
                                  write_matrix_csv = TRUE,
                                  write_heatmap = TRUE) {
+  filtered_log_filename <- if (prefix == "q2a") {
+    "ahmad_travel_logs_filtered.csv"
+  } else {
+    paste0(prefix, "_travel_logs_filtered.csv")
+  }
+
   if (isTRUE(write_filtered_log) && !is.null(processed_dir)) {
     dir.create(processed_dir, recursive = TRUE, showWarnings = FALSE)
     utils::write.csv(
       q2a_result$filtered_logs,
-      file.path(processed_dir, "ahmad_travel_logs_filtered.csv"),
+      file.path(processed_dir, filtered_log_filename),
       row.names = FALSE
     )
   }
@@ -335,7 +343,7 @@ export_q2a_artifacts <- function(q2a_result,
     )
     utils::write.table(
       cost_table,
-      file.path(output_dir, "q2a_cost_matrix.csv"),
+      file.path(output_dir, paste0(prefix, "_cost_matrix.csv")),
       sep = ",",
       row.names = FALSE
     )
@@ -343,7 +351,7 @@ export_q2a_artifacts <- function(q2a_result,
 
   if (isTRUE(write_heatmap) && !is.null(output_dir)) {
     grDevices::png(
-      file.path(output_dir, "q2a_cost_matrix_heatmap.png"),
+      file.path(output_dir, paste0(prefix, "_cost_matrix_heatmap.png")),
       width = 900,
       height = 800
     )
@@ -411,21 +419,25 @@ run_q2a_cli <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   }
 
   raw_input_path <- file.path("data", "raw", "q2", "ahmad_travel_logs.csv")
-  synthetic_input_path <- file.path("data", "synthetic", "q2", "ahmad_travel_logs.csv")
 
   if (length(arguments) == 1L) {
     input_path <- path.expand(arguments[[1L]])
+    if (!file.exists(input_path)) {
+      stop("Travel log CSV not found: ", input_path, call. = FALSE)
+    }
   } else if (file.exists(raw_input_path)) {
     input_path <- raw_input_path
   } else {
-    input_path <- synthetic_input_path
+    message("Q2(a): default travel CSV not found at ", raw_input_path)
+    message("Q2(a): skipped. Supply the grading dataset or pass synthetic data explicitly, e.g.:")
+    message("  Rscript code/q2/q2a_cost_matrix.R \"data/synthetic/q2/ahmad_travel_logs.csv\"")
+    return(invisible(list(status = "missing_input", path = raw_input_path)))
   }
 
-  if (!file.exists(input_path)) {
-    stop("Travel log CSV not found: ", input_path, call. = FALSE)
-  }
-  if (identical(input_path, synthetic_input_path)) {
-    message("Q2(a): using synthetic development data from ", input_path)
+  is_synthetic <- grepl("synthetic", tolower(gsub("\\\\", "/", input_path)))
+  if (is_synthetic) {
+    message("Q2(a): EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
+    message("Q2(a): (Results are from synthetic development data, NOT unseen grading data)")
   } else {
     message("Q2(a): reading travel logs from ", input_path)
   }

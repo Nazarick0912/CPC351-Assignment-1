@@ -1,29 +1,35 @@
-# Q2 module: input schema check, Q2(a) integration hook, and Q2(b) Nearest Neighbour routing.
-# No dataset is provided with the assignment materials.
+# Q2 module: coordinates, Q2(a) cost matrix, and Q2(b) Nearest Neighbour routing pipeline.
 
 required_travel_columns <- c(
   "Origin_X", "Origin_Y", "Dest_X", "Dest_Y",
   "Weather", "Time_of_Day", "Travel_Time_Minutes"
 )
 
-# Load Q2(b) Nearest Neighbour implementation into the active environment
-load_q2b_module <- function(project_root = NULL) {
-  candidates <- character(0)
-  if (!is.null(project_root)) {
-    candidates <- c(candidates, file.path(project_root, "code", "q2", "nearest_neighbour.R"))
+# Load Q2(a) and Q2(b) implementation modules into the calling environment
+load_q2_modules <- function(project_root = NULL) {
+  load_single <- function(filename) {
+    candidates <- character(0)
+    if (!is.null(project_root)) {
+      candidates <- c(candidates, file.path(project_root, "code", "q2", filename))
+    }
+    candidates <- c(candidates, file.path("code", "q2", filename), filename)
+    existing <- candidates[file.exists(candidates)]
+    if (length(existing) == 0L) {
+      stop("Cannot locate code/q2/", filename, call. = FALSE)
+    }
+    source(existing[[1L]], local = parent.frame(2L))
   }
-  candidates <- c(candidates, file.path("code", "q2", "nearest_neighbour.R"), "nearest_neighbour.R")
-  existing <- candidates[file.exists(candidates)]
-  if (length(existing) == 0L) {
-    stop("Cannot locate code/q2/nearest_neighbour.R.", call. = FALSE)
-  }
-  source(existing[[1L]], local = parent.frame())
+  load_single("nearest_neighbour.R")
+  load_single("q2a_cost_matrix.R")
 }
 
-load_q2b_module(if (exists("project_root", inherits = TRUE)) get("project_root", inherits = TRUE) else NULL)
+load_q2b_module <- function(project_root = NULL) {
+  load_q2_modules(project_root)
+}
 
-# Connects Q2(a) output (either a 10x10 matrix or list(cost_matrix, penalty_matrix))
-# directly to Q2(b) Nearest Neighbour routing.
+load_q2_modules(if (exists("project_root", inherits = TRUE)) get("project_root", inherits = TRUE) else NULL)
+
+# Connects Q2(a) output to Q2(b) Nearest Neighbour routing.
 run_q2b_from_q2a <- function(q2a_result,
                              start_point = "P1",
                              output_dir = NULL,
@@ -53,67 +59,85 @@ run_q2b_from_q2a <- function(q2a_result,
   )
 }
 
-inspect_q2_inputs <- function(project_root, input_path, start_point = "P1") {
-  load_q2b_module(project_root)
+# Main pipeline entry point for Question 2.
+# Enforces strict input selection, executes Q2(a) cleaning/percentiles,
+# feeds the matrix into Q2(b) Nearest Neighbour routing, and exports artifacts.
+inspect_q2_inputs <- function(project_root,
+                              input_path,
+                              start_point = "P1",
+                              is_explicit = NULL,
+                              output_dir = NULL,
+                              processed_dir = NULL,
+                              verbose = TRUE) {
+  load_q2_modules(project_root)
+
+  default_path <- file.path(project_root, "data", "raw", "q2", "ahmad_travel_logs.csv")
+  if (is.null(is_explicit)) {
+    is_explicit <- !identical(
+      normalizePath(input_path, winslash = "/", mustWork = FALSE),
+      normalizePath(default_path, winslash = "/", mustWork = FALSE)
+    )
+  }
 
   if (!file.exists(input_path)) {
-    message("Q2: no travel CSV found at ", input_path)
-    message("Q2: skipped. Supply the CSV path when a dataset is available.")
-    message(
-      "Q2(b): Nearest Neighbour routing is implemented. ",
-      "Run `Rscript code/q2/synthetic_demo.R` for the standalone synthetic demo ",
-      "or `Rscript code/q2/test_nearest_neighbour.R` for unit tests."
-    )
-    return(invisible(list(
-      status = "missing_input",
-      path = input_path,
-      q2b_ready = TRUE
-    )))
+    if (isTRUE(is_explicit)) {
+      stop("Travel log CSV not found: ", input_path, call. = FALSE)
+    }
+    message("Q2: default travel CSV not found at ", input_path)
+    message("Q2: skipped. Supply the grading dataset or pass synthetic data explicitly, e.g.:")
+    message("  Rscript code/run.R q2 \"data/synthetic/q2/ahmad_travel_logs.csv\"")
+    return(invisible(list(status = "missing_input", path = input_path, q2_ready = TRUE)))
   }
 
-  header <- utils::read.csv(input_path, nrows = 0L, check.names = FALSE,
-                            stringsAsFactors = FALSE)
-  missing_columns <- setdiff(required_travel_columns, names(header))
+  # Identify whether the input is the development synthetic fixture
+  synthetic_canonical <- normalizePath(
+    file.path(project_root, "data", "synthetic", "q2", "ahmad_travel_logs.csv"),
+    winslash = "/",
+    mustWork = FALSE
+  )
+  input_canonical <- normalizePath(input_path, winslash = "/", mustWork = FALSE)
+  is_synthetic_fixture <- identical(input_canonical, synthetic_canonical) ||
+    grepl("^data/synthetic/", tolower(gsub("\\\\", "/", input_path)))
 
-  if (length(missing_columns) > 0L) {
-    stop("Q2 CSV is missing required columns: ",
-         paste(missing_columns, collapse = ", "), call. = FALSE)
-  }
-  if (anyDuplicated(names(header)) > 0L) {
-    stop("Q2 CSV contains duplicate column names.", call. = FALSE)
-  }
-
-  message("Q2: required CSV column names are present.")
-
-  # Integration hook: if Q2(a) defines build_q2a_cost_matrix(input_path),
-  # execute Q2(a) -> Q2(b) automatically. Otherwise report honestly that Q2(a)
-  # is still pending without substituting synthetic data.
-  if (exists("build_q2a_cost_matrix", mode = "function", inherits = TRUE)) {
-    q2a_fn <- get("build_q2a_cost_matrix", mode = "function", inherits = TRUE)
-    q2a_out <- q2a_fn(input_path)
-    out_dir <- file.path(project_root, "outputs", "q2")
-    q2b_out <- run_q2b_from_q2a(
-      q2a_result = q2a_out,
-      start_point = start_point,
-      output_dir = out_dir,
-      output_prefix = "q2b_tour",
-      verbose = TRUE
-    )
-    return(invisible(list(
-      status = "completed",
-      path = input_path,
-      columns = names(header),
-      q2a = q2a_out,
-      q2b = q2b_out
-    )))
+  if (is_synthetic_fixture) {
+    message("Q2: EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
+    message("Q2: (Results are from synthetic development data, NOT unseen grading data)")
+  } else {
+    message("Q2: reading travel logs from ", input_path)
   }
 
-  message("Q2(a): value checks, cleaning, and 75th-percentile cost matrix generation are pending.")
-  message("Q2(b): Nearest Neighbour routing (`run_q2b_routing`) is implemented and awaiting Q2(a)'s cost matrix.")
+  # 1. Execute Q2(a): validates headers, cleans anomalies, computes 75th percentile & penalty
+  q2a_res <- build_q2a_cost_matrix(input_path)
+
+  # 2. Export Q2(a) artifacts
+  out_dir <- if (!is.null(output_dir)) output_dir else file.path(project_root, "outputs", "q2")
+  proc_dir <- if (!is.null(processed_dir)) processed_dir else file.path(project_root, "data", "processed", "q2")
+  prefix_q2a <- if (is_synthetic_fixture) "synthetic_q2a" else "q2a"
+  prefix_q2b <- if (is_synthetic_fixture) "synthetic_q2b_tour" else "q2b_tour"
+
+  export_q2a_artifacts(
+    q2a_result = q2a_res,
+    output_dir = out_dir,
+    processed_dir = proc_dir,
+    prefix = prefix_q2a
+  )
+
+  # 3. Execute Q2(b): Nearest Neighbour routing
+  q2b_res <- run_q2b_from_q2a(
+    q2a_result = q2a_res,
+    start_point = start_point,
+    output_dir = out_dir,
+    output_prefix = prefix_q2b,
+    verbose = verbose
+  )
+
   invisible(list(
-    status = "schema_checked_awaiting_q2a",
+    status = "completed",
     path = input_path,
-    columns = names(header),
-    q2b_ready = TRUE
+    is_synthetic = is_synthetic_fixture,
+    q2a = q2a_res,
+    q2b = q2b_res,
+    route_status_matrix = q2a_res$route_status_matrix,
+    route_metadata = q2a_res$route_metadata
   ))
 }
