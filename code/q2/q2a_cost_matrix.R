@@ -11,15 +11,32 @@ q2_delivery_points <- function() {
   )
 }
 
+required_travel_columns <- c(
+  "Origin_X", "Origin_Y", "Dest_X", "Dest_Y",
+  "Weather", "Time_of_Day", "Travel_Time_Minutes"
+)
+
 # Constructs the 10 x 10 cost matrix and penalty metadata from a travel log CSV.
+#
+# Arguments:
+#   input_path       : Path to the travel log CSV (mandatory).
+#   points           : Delivery points table; defaults to q2_delivery_points().
+#   fallback_penalty : Penalty value used when no usable history exists across
+#                      the entire dataset (default: 99999).
+#
 # Returns a named list containing:
-#   $cost_matrix   : 10 x 10 numeric matrix with matching P1..P10 row and column labels
-#   $penalty_matrix: 10 x 10 logical matrix (TRUE where route has no valid history)
-#   $penalty_value : numeric penalty value assigned to impassable routes
-#   $maximum_observed_cost : largest finite cost observed across all valid routes
-#   $filtered_logs : data frame of filtered Rainy Morning records
-#   $stats         : list of cleaning and filtering summary counts
-build_q2a_cost_matrix <- function(input_path, points = NULL) {
+#   $cost_matrix           : 10 x 10 numeric matrix with matching P1..P10 labels
+#   $penalty_matrix        : 10 x 10 logical matrix (TRUE where route has no usable history)
+#   $penalty_value         : numeric penalty value assigned to impassable/unusable routes
+#   $maximum_observed_cost : largest finite 75th-percentile cost from usable routes (or NA)
+#   $has_usable_history    : logical; FALSE if entire dataset has zero usable travel times
+#   $route_status_matrix   : 10 x 10 character matrix describing evidence for each route
+#   $route_metadata        : data frame with route-by-route counts and status breakdown
+#   $filtered_logs         : data frame of usable cleaned records under Rainy Morning
+#   $stats                 : list of cleaning and filtering counts
+build_q2a_cost_matrix <- function(input_path,
+                                  points = NULL,
+                                  fallback_penalty = 99999) {
   if (missing(input_path) || !is.character(input_path) ||
       length(input_path) != 1L || !nzchar(trimws(input_path))) {
     stop("input_path must be a single non-empty character string.", call. = FALSE)
@@ -34,30 +51,30 @@ build_q2a_cost_matrix <- function(input_path, points = NULL) {
 
   logs <- utils::read.csv(input_path, check.names = FALSE, stringsAsFactors = FALSE)
 
-  # Keep only Rainy Morning records. Change missing weather/time conditions to FALSE.
+  # 1. Validate required columns and check for duplicates
+  missing_columns <- setdiff(required_travel_columns, names(logs))
+  if (length(missing_columns) > 0L) {
+    stop("Q2 CSV is missing required columns: ",
+         paste(missing_columns, collapse = ", "), call. = FALSE)
+  }
+  if (anyDuplicated(names(logs)) > 0L) {
+    stop("Q2 CSV contains duplicate column names.", call. = FALSE)
+  }
+
+  # 2. Filter strictly for Rainy Morning records
+  # Missing weather or time conditions are safely treated as FALSE
   rainy_morning_rows <- logs$Weather == "Rainy" & logs$Time_of_Day == "Morning"
   rainy_morning_rows[is.na(rainy_morning_rows)] <- FALSE
-  rainy_logs <- logs[rainy_morning_rows, ]
+  rainy_logs <- logs[rainy_morning_rows, , drop = FALSE]
   rainy_morning_row_count <- nrow(rainy_logs)
 
   n_points <- nrow(points)
   point_names <- if (!is.null(points$name)) points$name else paste0("P", seq_len(n_points))
 
-  # Start an empty matrix with matching P1..P10 row/column labels.
-  # Rows are origins; columns are destinations.
-  cost_matrix <- matrix(
-    NA_real_,
-    nrow = n_points,
-    ncol = n_points,
-    dimnames = list(point_names, point_names)
-  )
-
-  used_record_count <- 0L
-  observed_route_count <- 0L
+  # 3. Validate coordinates against supplied delivery points
   outside_point_count <- 0L
   valid_point_rows <- rep(FALSE, nrow(rainy_logs))
 
-  # Keep only records whose origin and destination are among the ten points.
   for (record in seq_len(nrow(rainy_logs))) {
     origin_found <- FALSE
     destination_found <- FALSE
@@ -85,67 +102,194 @@ build_q2a_cost_matrix <- function(input_path, points = NULL) {
     }
   }
 
-  rainy_logs <- rainy_logs[valid_point_rows, ]
+  rainy_logs <- rainy_logs[valid_point_rows, , drop = FALSE]
 
-  travel_times <- rainy_logs$Travel_Time_Minutes
-  valid_time_rows <- !is.na(travel_times) & travel_times >= 0
-  filtered_logs <- rainy_logs[valid_time_rows, ]
+  # 4. Parse and classify travel times explicitly
+  # Distinguish:
+  #   - is_missing            : NA or empty string
+  #   - is_closure_minus_one  : numeric -1 or string "-1"
+  #   - is_malformed          : non-empty text that fails numeric coercion (e.g. "error")
+  #   - is_non_finite         : NaN, Inf, -Inf
+  #   - is_other_negative     : finite negative values other than -1
+  #   - is_zero               : travel time exactly 0 (unusable for distinct delivery points)
+  #   - is_usable             : finite positive travel times (> 0)
+  raw_tt <- rainy_logs$Travel_Time_Minutes
+  raw_as_char <- trimws(as.character(raw_tt))
+  parsed_tt <- suppressWarnings(as.numeric(raw_as_char))
 
-  # Calculate the 75th percentile for every directed origin-destination route.
+  is_missing <- is.na(raw_tt) | raw_as_char %in% c("", "NA")
+  is_closure_minus_one <- !is_missing & (parsed_tt == -1 | raw_as_char == "-1")
+  is_closure_minus_one[is.na(is_closure_minus_one)] <- FALSE
+
+  is_malformed <- !is_missing & is.na(parsed_tt)
+  is_non_finite <- !is_missing & !is_malformed & (!is.finite(parsed_tt) | is.nan(parsed_tt))
+  is_other_negative <- !is_missing & !is_malformed & is.finite(parsed_tt) &
+                       parsed_tt < 0 & parsed_tt != -1
+  is_zero <- !is_missing & !is_malformed & is.finite(parsed_tt) & parsed_tt == 0
+  is_usable <- !is_missing & !is_malformed & is.finite(parsed_tt) & parsed_tt > 0
+
+  # Cleaned logs for aggregation contain only usable positive finite records
+  filtered_logs <- rainy_logs[is_usable, , drop = FALSE]
+  if (nrow(filtered_logs) > 0L) {
+    filtered_logs$Travel_Time_Minutes <- parsed_tt[is_usable]
+  }
+
+  # 5. Route-by-route aggregation, quantile calculation, and status tracking
+  cost_matrix <- matrix(
+    NA_real_,
+    nrow = n_points,
+    ncol = n_points,
+    dimnames = list(point_names, point_names)
+  )
+
+  route_status_matrix <- matrix(
+    "no_observations",
+    nrow = n_points,
+    ncol = n_points,
+    dimnames = list(point_names, point_names)
+  )
+
+  used_record_count <- 0L
+  observed_route_count <- 0L
+
+  meta_origin <- character(n_points * n_points)
+  meta_dest <- character(n_points * n_points)
+  meta_status <- character(n_points * n_points)
+  meta_usable_n <- integer(n_points * n_points)
+  meta_closure_n <- integer(n_points * n_points)
+  meta_other_invalid_n <- integer(n_points * n_points)
+  meta_cost <- numeric(n_points * n_points)
+  idx <- 1L
+
   for (origin in seq_len(n_points)) {
     for (destination in seq_len(n_points)) {
-      if (origin != destination) {
-        route_rows <- filtered_logs$Origin_X == points$x[origin] &
-          filtered_logs$Origin_Y == points$y[origin] &
-          filtered_logs$Dest_X == points$x[destination] &
-          filtered_logs$Dest_Y == points$y[destination]
+      meta_origin[[idx]] <- point_names[[origin]]
+      meta_dest[[idx]] <- point_names[[destination]]
 
-        # Missing route matches are excluded.
-        route_rows[is.na(route_rows)] <- FALSE
-
-        route_times <- filtered_logs$Travel_Time_Minutes[route_rows]
-        used_record_count <- used_record_count + length(route_times)
-
-        if (length(route_times) > 0L) {
-          cost_matrix[origin, destination] <- stats::quantile(route_times, 0.75)
-          observed_route_count <- observed_route_count + 1L
-        }
-      } else {
-        # Travelling from a point to itself has zero cost.
+      if (origin == destination) {
         cost_matrix[origin, destination] <- 0
+        route_status_matrix[origin, destination] <- "self_loop"
+        meta_status[[idx]] <- "self_loop"
+        meta_cost[[idx]] <- 0
+      } else {
+        # Check all Rainy Morning observations for this directed coordinate pair
+        pair_mask <- rainy_logs$Origin_X == points$x[origin] &
+                     rainy_logs$Origin_Y == points$y[origin] &
+                     rainy_logs$Dest_X == points$x[destination] &
+                     rainy_logs$Dest_Y == points$y[destination]
+        pair_mask[is.na(pair_mask)] <- FALSE
+
+        n_pair_obs <- sum(pair_mask)
+        n_pair_usable <- sum(pair_mask & is_usable)
+        n_pair_closure <- sum(pair_mask & (is_missing | is_closure_minus_one))
+        n_pair_other_inv <- sum(pair_mask & (is_zero | is_other_negative |
+                                             is_non_finite | is_malformed))
+
+        meta_usable_n[[idx]] <- n_pair_usable
+        meta_closure_n[[idx]] <- n_pair_closure
+        meta_other_invalid_n[[idx]] <- n_pair_other_inv
+
+        if (n_pair_usable > 0L) {
+          # Route has usable history: calculate 75th percentile (Type 7)
+          usable_times <- parsed_tt[pair_mask & is_usable]
+          used_record_count <- used_record_count + length(usable_times)
+          p75 <- stats::quantile(usable_times, probs = 0.75, type = 7, names = FALSE)
+          cost_matrix[origin, destination] <- p75
+          route_status_matrix[origin, destination] <- "usable_history"
+          meta_status[[idx]] <- "usable_history"
+          meta_cost[[idx]] <- p75
+          observed_route_count <- observed_route_count + 1L
+        } else if (n_pair_obs == 0L) {
+          route_status_matrix[origin, destination] <- "no_observations"
+          meta_status[[idx]] <- "no_observations"
+          meta_cost[[idx]] <- NA_real_
+        } else if (n_pair_closure > 0L && n_pair_other_inv == 0L) {
+          # All records are pure closures (NA or -1)
+          route_status_matrix[origin, destination] <- "closure_only"
+          meta_status[[idx]] <- "closure_only"
+          meta_cost[[idx]] <- NA_real_
+        } else {
+          # Other invalid records present (or mixed closure + other invalid)
+          route_status_matrix[origin, destination] <- "other_invalid"
+          meta_status[[idx]] <- "other_invalid"
+          meta_cost[[idx]] <- NA_real_
+        }
       }
+      idx <- idx + 1L
     }
   }
 
-  # Construct penalty_matrix directly from conditions that leave a route with
-  # no valid travel history (cells remaining NA), setting diagonal to FALSE.
+  route_metadata <- data.frame(
+    origin = meta_origin,
+    destination = meta_dest,
+    status = meta_status,
+    usable_count = meta_usable_n,
+    closure_count = meta_closure_n,
+    other_invalid_count = meta_other_invalid_n,
+    cost_minutes = meta_cost,
+    is_penalized = is.na(meta_cost) & meta_origin != meta_dest,
+    stringsAsFactors = FALSE
+  )
+
+  # 6. Penalty matrix construction and severe penalty calculation
   penalty_matrix <- is.na(cost_matrix)
   diag(penalty_matrix) <- FALSE
   dimnames(penalty_matrix) <- list(point_names, point_names)
 
-  # Calculate severe penalty: 11 * M + 1 minute (M = max observed valid cost).
-  maximum_observed_cost <- max(cost_matrix, na.rm = TRUE)
-  impassable_penalty <- maximum_observed_cost * 11 + 1
+  usable_off_diag <- cost_matrix[row(cost_matrix) != col(cost_matrix) & !is.na(cost_matrix)]
 
-  # Assign the high penalty to routes with no valid history.
+  if (length(usable_off_diag) > 0L) {
+    maximum_observed_cost <- max(usable_off_diag)
+    impassable_penalty <- maximum_observed_cost * 11 + 1
+
+    if (is.infinite(impassable_penalty)) {
+      stop("Maximum observed cost is too large; penalty calculation (11 * M + 1) overflows to Inf.",
+           call. = FALSE)
+    }
+    has_usable_history <- TRUE
+  } else {
+    maximum_observed_cost <- NA_real_
+    impassable_penalty <- as.numeric(fallback_penalty)
+
+    if (!is.finite(impassable_penalty) || impassable_penalty <= 0) {
+      stop("fallback_penalty must be a positive finite number.", call. = FALSE)
+    }
+
+    has_usable_history <- FALSE
+    warning(
+      "Q2(a): No usable travel times found under Rainy Morning conditions across any route. ",
+      "Applying fallback penalty (", impassable_penalty, "). ",
+      "Matrix contains only artificial penalties.",
+      call. = FALSE
+    )
+  }
+
+  # Assign the high penalty to all routes without usable history
   cost_matrix[penalty_matrix] <- impassable_penalty
   attr(cost_matrix, "penalty_matrix") <- penalty_matrix
 
-  penalty_route_count <- sum(penalty_matrix)
+  # Update route_metadata cost for penalized routes
+  route_metadata$cost_minutes[route_metadata$is_penalized] <- impassable_penalty
 
+  # 7. Summary statistics
   stats <- list(
     rows_in_file = nrow(logs),
     rainy_morning_rows_before_coord = rainy_morning_row_count,
     outside_point_rows = outside_point_count,
     rainy_morning_rows_after_coord = nrow(rainy_logs),
-    missing_travel_times = sum(is.na(travel_times)),
-    closure_records_minus_one = sum(travel_times == -1, na.rm = TRUE),
-    other_negative_travel_times = sum(travel_times < 0 & travel_times != -1, na.rm = TRUE),
-    valid_travel_records_used = used_record_count,
+    missing_travel_times = sum(is_missing),
+    closure_records_minus_one = sum(is_closure_minus_one),
+    zero_duration_records = sum(is_zero),
+    other_negative_travel_times = sum(is_other_negative),
+    non_finite_travel_times = sum(is_non_finite),
+    malformed_travel_times = sum(is_malformed),
+    total_invalid_travel_times = sum(!is_usable),
+    valid_travel_records_used = nrow(filtered_logs),
     observed_directed_routes = observed_route_count,
-    penalized_route_count = penalty_route_count,
+    penalized_route_count = sum(penalty_matrix),
     maximum_observed_cost = maximum_observed_cost,
-    impassable_penalty = impassable_penalty
+    impassable_penalty = impassable_penalty,
+    has_usable_history = has_usable_history
   )
 
   list(
@@ -153,6 +297,9 @@ build_q2a_cost_matrix <- function(input_path, points = NULL) {
     penalty_matrix = penalty_matrix,
     penalty_value = impassable_penalty,
     maximum_observed_cost = maximum_observed_cost,
+    has_usable_history = has_usable_history,
+    route_status_matrix = route_status_matrix,
+    route_metadata = route_metadata,
     filtered_logs = filtered_logs,
     stats = stats,
     input_path = input_path,
@@ -205,8 +352,14 @@ export_q2a_artifacts <- function(q2a_result,
     point_names <- q2a_result$point_names
 
     observed_costs <- cost_matrix[cost_matrix != impassable_penalty]
-    highest_observed_cost <- max(observed_costs, na.rm = TRUE)
-    if (highest_observed_cost <= 0) highest_observed_cost <- 1
+    highest_observed_cost <- if (length(observed_costs) > 0L) {
+      max(observed_costs, na.rm = TRUE)
+    } else {
+      1
+    }
+    if (is.na(highest_observed_cost) || highest_observed_cost <= 0) {
+      highest_observed_cost <- 1
+    }
 
     travel_time_colors <- grDevices::colorRampPalette(
       c("#fff8df", "#f2dda9", "#e7ad8c", "#cf8888")

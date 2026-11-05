@@ -30,6 +30,9 @@ Rscript code/run.R q2 "C:/path/to/ahmad_travel_logs.csv"
 Rscript code/q2/q2a_cost_matrix.R
 Rscript code/q2/q2a_cost_matrix.R "C:/path/to/ahmad_travel_logs.csv"
 
+# Q2(a) test suite (12 unit & edge-case test suites)
+Rscript code/q2/test_q2a_cost_matrix.R
+
 # Q2(b) test suite (10 unit & integration test suites)
 Rscript code/q2/test_nearest_neighbour.R
 
@@ -58,22 +61,42 @@ For smaller test fixtures ($N \ge 2$), call:
 
 ## Q2(a) Data Cleaning and Severe Penalty Calculation
 
-The Q2(a) script filters rows where `Weather == "Rainy"` and `Time_of_Day == "Morning"`,
-retaining records whose coordinates match the 10 assigned points and whose travel
-times are non-negative and non-missing. Cleaned records are saved to
-`data/processed/q2/ahmad_travel_logs_filtered.csv`.
+The Q2(a) pipeline filters records where `Weather == "Rainy"` and `Time_of_Day == "Morning"`,
+retaining records whose coordinates match the 10 assigned points $P_1 \dots P_{10}$.
 
-For each directed pair $(P_i, P_j)$, the 75th percentile travel time is computed.
-If a route has no valid travel history (all records missing, closures, or
-unobserved), it is assigned a severe penalty:
+### Cleaning Decisions and Invalid-Value Treatments
+- **Severe Road Closures**: Records with `Travel_Time_Minutes == -1` or `NA` are excluded
+  prior to aggregation per the assignment brief.
+- **Other Negatives, Non-Finites, and Malformed Text**: Negative values other than `-1`,
+  non-finite numbers (`Inf`, `-Inf`, `NaN`), and malformed text are dropped as unusable.
+- **Zero-Duration Assumption**: For distinct-point journeys ($P_i \ne P_j$), durations of
+  `0.0` minutes are treated as physical anomalies / unusable measurement errors and
+  excluded. This is documented as our group's explicit data-cleaning decision, not a
+  stated requirement in the brief.
+
+### Route-Status Distinctions in Metadata
+Before dropping unusable rows, route evidence for each directed pair is categorized:
+1. `usable_history`: At least one valid positive finite observation ($t > 0$).
+2. `closure_only`: All records for the route are closures (`NA` or `-1`), with no other invalids.
+3. `other_invalid`: Observations contain invalid values (e.g. zero, other negatives, malformed,
+   or mixed closure and other invalids). Mixed closure/invalid routes are never labelled `closure_only`.
+4. `no_observations`: Zero Rainy Morning records match the coordinate pair.
+
+### Quantile and Penalty Calculation
+For each directed pair $(P_i, P_j)$, the 75th percentile is computed using
+`quantile(..., probs = 0.75, type = 7)`. If a route has no usable travel history, it is
+assigned a severe penalty:
 
 ```text
 penalty = 11 * M + 1 minute
 ```
-where `M` is the maximum valid observed route cost in the matrix. Because a
-valid 10-point tour consists of 10 legs with total cost at most $10 \times M$,
-a single penalty edge ($11 \times M + 1$) costs more than any conceivable
-all-valid tour, making impassable routes strongly discouraged.
+where `M` is the maximum valid observed 75th-percentile cost across off-diagonal pairs.
+Because a valid 10-point tour has 10 legs with total cost at most $10 \times M$, a single
+penalty edge ($11 \times M + 1$) costs more than any conceivable all-valid tour.
+
+- **No-Valid-Data Fallback**: If an unseen dataset contains zero usable travel times across
+  all routes, the function avoids mathematical collapse to `-Inf` or `1` by applying a
+  documented positive finite fallback penalty (default `99999`) and emitting a clear warning.
 
 ## Q2(a) -> Q2(b) Integration Contract
 
