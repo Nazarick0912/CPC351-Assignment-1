@@ -53,7 +53,7 @@ Rscript code/run.R q2 "data/synthetic/q2/ahmad_travel_logs.csv"
 # Standalone Q2(a) runner (builds cost matrix, filtered log, and heatmap)
 Rscript code/q2/q2a_cost_matrix.R "data/synthetic/q2/ahmad_travel_logs.csv"
 
-# Pipeline integration & input-selection tests (6 test suites)
+# Pipeline integration & input-selection tests (8 test suites)
 Rscript code/q2/test_pipeline.R
 
 # Q2(a) cleaning & matrix tests (12 test suites)

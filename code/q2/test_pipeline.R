@@ -211,9 +211,11 @@ run_pipeline_tests <- function(project_root = locate_repo_root()) {
     file.exists(file.path(cli_synth_out, "synthetic_q2a_cost_matrix.csv")),
     file.exists(file.path(cli_synth_out, "synthetic_q2a_cost_matrix_heatmap.png")),
     file.exists(file.path(cli_synth_proc, "synthetic_ahmad_travel_logs_filtered.csv")),
-    # Precision check: total_cost is exact sum of unrounded edges
+    # Precision check: total_cost is the exact sum of unrounded edges (133.600 min).
+    # Stored in binary float (133.59999999999999), the stored total and sum are identical (diff == 0).
     abs(res_full$q2b$total_cost - sum(res_full$q2b$edge_table$cost_minutes)) < 1e-9,
     identical(round(res_full$q2b$total_cost, 2), 133.60),
+    # Pre-rounding each edge individually yields 133.59 due to IEC 60559 round-to-even on .xx5 values
     identical(round(sum(round(res_full$q2b$edge_table$cost_minutes, 2)), 2), 133.59)
   )
   cat("[PASS] 8. Standalone synthetic artifact naming and unrounded tour sum verified\n")

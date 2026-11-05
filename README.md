@@ -3,8 +3,10 @@
 USM CPC351/CPM351 Principles of Data Analytics, Semester 1, 2026/2027.
 
 R project scaffold for exam scheduling (Q1) and delivery routing (Q2).
-The baseline inventories Q1 inputs and checks Q2 CSV column names;
-the assignment algorithms are still pending.
+Q1 inventories raw inputs while cleaning and scheduling algorithms remain
+pending. Q2 is fully implemented and integrated (cleaning, cost matrix, and
+Nearest Neighbour routing) with strict input validation and honest skips when
+the raw dataset is absent.
 
 ## Project links
 
