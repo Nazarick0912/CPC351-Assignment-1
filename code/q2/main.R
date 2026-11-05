@@ -90,14 +90,7 @@ inspect_q2_inputs <- function(project_root,
   }
 
   # Identify whether the input is the development synthetic fixture
-  synthetic_canonical <- normalizePath(
-    file.path(project_root, "data", "synthetic", "q2", "ahmad_travel_logs.csv"),
-    winslash = "/",
-    mustWork = FALSE
-  )
-  input_canonical <- normalizePath(input_path, winslash = "/", mustWork = FALSE)
-  is_synthetic_fixture <- identical(input_canonical, synthetic_canonical) ||
-    grepl("^data/synthetic/", tolower(gsub("\\\\", "/", input_path)))
+  is_synthetic_fixture <- is_known_synthetic_fixture(input_path, project_root = project_root)
 
   if (is_synthetic_fixture) {
     message("Q2: EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
@@ -114,12 +107,18 @@ inspect_q2_inputs <- function(project_root,
   proc_dir <- if (!is.null(processed_dir)) processed_dir else file.path(project_root, "data", "processed", "q2")
   prefix_q2a <- if (is_synthetic_fixture) "synthetic_q2a" else "q2a"
   prefix_q2b <- if (is_synthetic_fixture) "synthetic_q2b_tour" else "q2b_tour"
+  heatmap_title <- if (is_synthetic_fixture) {
+    "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+  } else {
+    "Rainy Morning: 75th-percentile travel cost (minutes)"
+  }
 
   export_q2a_artifacts(
     q2a_result = q2a_res,
     output_dir = out_dir,
     processed_dir = proc_dir,
-    prefix = prefix_q2a
+    prefix = prefix_q2a,
+    heatmap_title = heatmap_title
   )
 
   # 3. Execute Q2(b): Nearest Neighbour routing

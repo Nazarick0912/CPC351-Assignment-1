@@ -16,6 +16,44 @@ required_travel_columns <- c(
   "Weather", "Time_of_Day", "Travel_Time_Minutes"
 )
 
+# Checks if input_path resolves to the repository's known synthetic development fixture.
+is_known_synthetic_fixture <- function(input_path, project_root = NULL) {
+  if (missing(input_path) || !is.character(input_path) || length(input_path) != 1L) {
+    return(FALSE)
+  }
+  if (!file.exists(input_path)) {
+    return(FALSE)
+  }
+
+  if (is.null(project_root)) {
+    candidate <- getwd()
+    repeat {
+      if (file.exists(file.path(candidate, "CPC351-Assignment-1.Rproj")) &&
+          file.exists(file.path(candidate, "code", "run.R"))) {
+        project_root <- candidate
+        break
+      }
+      parent <- dirname(candidate)
+      if (identical(parent, candidate)) break
+      candidate <- parent
+    }
+  }
+
+  if (is.null(project_root)) {
+    return(FALSE)
+  }
+
+  known_path <- file.path(project_root, "data", "synthetic", "q2", "ahmad_travel_logs.csv")
+  if (!file.exists(known_path)) {
+    return(FALSE)
+  }
+
+  identical(
+    normalizePath(input_path, winslash = "/", mustWork = TRUE),
+    normalizePath(known_path, winslash = "/", mustWork = TRUE)
+  )
+}
+
 # Constructs the 10 x 10 cost matrix and penalty metadata from a travel log CSV.
 #
 # Arguments:
@@ -313,11 +351,14 @@ export_q2a_artifacts <- function(q2a_result,
                                  output_dir = file.path("outputs", "q2"),
                                  processed_dir = file.path("data", "processed", "q2"),
                                  prefix = "q2a",
+                                 heatmap_title = NULL,
                                  write_filtered_log = TRUE,
                                  write_matrix_csv = TRUE,
                                  write_heatmap = TRUE) {
   filtered_log_filename <- if (prefix == "q2a") {
     "ahmad_travel_logs_filtered.csv"
+  } else if (prefix == "synthetic_q2a") {
+    "synthetic_ahmad_travel_logs_filtered.csv"
   } else {
     paste0(prefix, "_travel_logs_filtered.csv")
   }
@@ -350,6 +391,14 @@ export_q2a_artifacts <- function(q2a_result,
   }
 
   if (isTRUE(write_heatmap) && !is.null(output_dir)) {
+    if (is.null(heatmap_title)) {
+      heatmap_title <- if (grepl("^synthetic", prefix)) {
+        "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+      } else {
+        "Rainy Morning: 75th-percentile travel cost (minutes)"
+      }
+    }
+
     grDevices::png(
       file.path(output_dir, paste0(prefix, "_cost_matrix_heatmap.png")),
       width = 900,
@@ -380,7 +429,7 @@ export_q2a_artifacts <- function(q2a_result,
       axes = FALSE,
       xlab = "Origin point",
       ylab = "Destination point",
-      main = "Synthetic Rainy Morning: 75th-percentile travel time (minutes)"
+      main = heatmap_title
     )
     graphics::axis(1, at = 1:10, labels = point_names, las = 2, cex.axis = 0.8)
     graphics::axis(2, at = 1:10, labels = point_names, las = 1, cex.axis = 0.8)
@@ -434,7 +483,7 @@ run_q2a_cli <- function(arguments = commandArgs(trailingOnly = TRUE)) {
     return(invisible(list(status = "missing_input", path = raw_input_path)))
   }
 
-  is_synthetic <- grepl("synthetic", tolower(gsub("\\\\", "/", input_path)))
+  is_synthetic <- is_known_synthetic_fixture(input_path)
   if (is_synthetic) {
     message("Q2(a): EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
     message("Q2(a): (Results are from synthetic development data, NOT unseen grading data)")
@@ -461,9 +510,21 @@ run_q2a_cli <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   unlabelled_view <- result$cost_matrix
   dimnames(unlabelled_view) <- NULL
   attr(unlabelled_view, "penalty_matrix") <- NULL
+  attr(unlabelled_view, "has_usable_history") <- NULL
   print(unlabelled_view)
 
-  export_q2a_artifacts(result)
+  prefix <- if (is_synthetic) "synthetic_q2a" else "q2a"
+  heatmap_title <- if (is_synthetic) {
+    "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+  } else {
+    "Rainy Morning: 75th-percentile travel cost (minutes)"
+  }
+
+  export_q2a_artifacts(
+    q2a_result = result,
+    prefix = prefix,
+    heatmap_title = heatmap_title
+  )
   invisible(result)
 }
 

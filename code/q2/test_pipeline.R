@@ -162,7 +162,63 @@ run_pipeline_tests <- function(project_root = locate_repo_root()) {
   )
   cat("[PASS] 6. All-invalid input retains no-usable-history status and artificial penalty wording\n")
 
-  cat("\nALL 6 PIPELINE INTEGRATION TEST SUITES PASSED.\n")
+  # 7. Exact synthetic fixture identification and external non-fixture handling
+  stopifnot(
+    isTRUE(is_known_synthetic_fixture(synthetic_csv, project_root)),
+    isFALSE(is_known_synthetic_fixture("nonexistent.csv", project_root)),
+    isFALSE(is_known_synthetic_fixture(NULL, project_root))
+  )
+
+  ext_synth_dir <- file.path(temp_dir, "fake_synthetic_dir")
+  dir.create(ext_synth_dir, recursive = TRUE, showWarnings = FALSE)
+  ext_synth_csv <- file.path(ext_synth_dir, "ahmad_travel_logs.csv")
+  file.copy(synthetic_csv, ext_synth_csv)
+  stopifnot(isFALSE(is_known_synthetic_fixture(ext_synth_csv, project_root)))
+
+  ext_out_dir <- file.path(temp_dir, "ext_out")
+  ext_proc_dir <- file.path(temp_dir, "ext_proc")
+  res_ext <- inspect_q2_inputs(
+    project_root = project_root,
+    input_path = ext_synth_csv,
+    is_explicit = TRUE,
+    output_dir = ext_out_dir,
+    processed_dir = ext_proc_dir,
+    verbose = FALSE
+  )
+  stopifnot(
+    identical(res_ext$status, "completed"),
+    isFALSE(res_ext$is_synthetic),
+    file.exists(file.path(ext_out_dir, "q2a_cost_matrix.csv")),
+    file.exists(file.path(ext_out_dir, "q2a_cost_matrix_heatmap.png")),
+    file.exists(file.path(ext_out_dir, "q2b_tour_edges.csv")),
+    file.exists(file.path(ext_out_dir, "q2b_tour_summary.csv")),
+    file.exists(file.path(ext_proc_dir, "ahmad_travel_logs_filtered.csv")),
+    !file.exists(file.path(ext_out_dir, "synthetic_q2a_cost_matrix.csv"))
+  )
+  cat("[PASS] 7. Strict fixture identification: external paths containing 'synthetic' are not flagged\n")
+
+  # 8. Standalone Q2(a) synthetic artifact exports and exact unrounded tour sum
+  cli_synth_out <- file.path(temp_dir, "cli_synth_out")
+  cli_synth_proc <- file.path(temp_dir, "cli_synth_proc")
+  synth_q2a_res <- build_q2a_cost_matrix(synthetic_csv)
+  export_q2a_artifacts(
+    q2a_result = synth_q2a_res,
+    output_dir = cli_synth_out,
+    processed_dir = cli_synth_proc,
+    prefix = "synthetic_q2a"
+  )
+  stopifnot(
+    file.exists(file.path(cli_synth_out, "synthetic_q2a_cost_matrix.csv")),
+    file.exists(file.path(cli_synth_out, "synthetic_q2a_cost_matrix_heatmap.png")),
+    file.exists(file.path(cli_synth_proc, "synthetic_ahmad_travel_logs_filtered.csv")),
+    # Precision check: total_cost is exact sum of unrounded edges
+    abs(res_full$q2b$total_cost - sum(res_full$q2b$edge_table$cost_minutes)) < 1e-9,
+    identical(round(res_full$q2b$total_cost, 2), 133.60),
+    identical(round(sum(round(res_full$q2b$edge_table$cost_minutes, 2)), 2), 133.59)
+  )
+  cat("[PASS] 8. Standalone synthetic artifact naming and unrounded tour sum verified\n")
+
+  cat("\nALL 8 PIPELINE INTEGRATION TEST SUITES PASSED.\n")
   invisible(TRUE)
 }
 
