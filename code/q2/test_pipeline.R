@@ -127,7 +127,15 @@ run_pipeline_tests <- function(project_root = locate_repo_root()) {
   cat("[PASS] 4. Explicit synthetic CSV executes full Q2(a) -> Q2(b) pipeline with verified total\n")
 
   # 5. Standalone Q2(a) follows identical explicit-input policy
-  res_cli_skip <- run_q2a_cli(arguments = character(0))
+  # Isolate the default relative path from any real CSV in the repository.
+  res_cli_skip <- local({
+    cli_directory <- file.path(temp_dir, "cli_missing_input")
+    dir.create(cli_directory, recursive = TRUE, showWarnings = FALSE)
+    previous_directory <- getwd()
+    on.exit(setwd(previous_directory), add = TRUE)
+    setwd(cli_directory)
+    run_q2a_cli(arguments = character(0))
+  })
   stopifnot(identical(res_cli_skip$status, "missing_input"))
   assert_raises_error(
     run_q2a_cli(arguments = file.path(temp_dir, "no_such_file.csv")),

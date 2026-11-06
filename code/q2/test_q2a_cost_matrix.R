@@ -28,16 +28,21 @@ locate_repo_root <- function() {
   stop("Cannot find repository root.", call. = FALSE)
 }
 
-assert_raises_error <- function(expr, description) {
+assert_raises_error <- function(expr, description, expected_message = NULL) {
   caught <- tryCatch(
     {
       force(expr)
-      FALSE
+      NULL
     },
-    error = function(e) TRUE
+    error = function(e) e
   )
-  if (!caught) {
+  if (is.null(caught)) {
     stop("Expected error did not occur for: ", description, call. = FALSE)
+  }
+  if (!is.null(expected_message) &&
+      !grepl(expected_message, conditionMessage(caught), fixed = TRUE)) {
+    stop("Unexpected error for ", description, ": ", conditionMessage(caught),
+         call. = FALSE)
   }
 }
 
@@ -161,10 +166,16 @@ run_q2a_tests <- function(project_root = locate_repo_root()) {
   tf_missing_col <- make_temp_csv(df_missing_col); on.exit(unlink(tf_missing_col), add = TRUE)
   assert_raises_error(build_q2a_cost_matrix(tf_missing_col), "missing required columns")
 
-  # Duplicate headers via raw write
+  # Include every required column so only the duplicate-header check can reject it.
   tf_dup <- tempfile(fileext = ".csv"); on.exit(unlink(tf_dup), add = TRUE)
-  writeLines("Origin_X,Origin_X,Dest_X,Dest_Y,Weather,Time_of_Day,Travel_Time_Minutes\n60,60,180,200,Rainy,Morning,15", tf_dup)
-  assert_raises_error(build_q2a_cost_matrix(tf_dup), "duplicate column names")
+  writeLines(paste0(
+    "Origin_X,Origin_Y,Dest_X,Dest_Y,Weather,Time_of_Day,Travel_Time_Minutes,Origin_X\n",
+    "60,200,180,200,Rainy,Morning,15,60"
+  ), tf_dup)
+  assert_raises_error(
+    build_q2a_cost_matrix(tf_dup), "duplicate column names",
+    expected_message = "Q2 CSV contains duplicate column names."
+  )
   cat("[PASS] 6. Missing headers and duplicate headers rejected with clear errors\n")
 
   # 7. Coordinate filtering: rows with coordinates outside P1..P10

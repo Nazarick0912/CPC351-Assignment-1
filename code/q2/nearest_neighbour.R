@@ -325,7 +325,10 @@ format_q2b_result <- function(result) {
     lines,
     paste(rep("-", 55), collapse = ""),
     sprintf("Total Matrix Cost   : %.2f minutes", result$total_cost),
-    sprintf("Cost Interpretation : %s", result$total_cost_label)
+    sprintf("Cost Interpretation : %s", result$total_cost_label),
+    paste0("Rounding Note       : Edge costs are displayed to 2 decimal places. ",
+           "The total uses unrounded values, so displayed edges may not sum exactly ",
+           "to the displayed total.")
   )
 
   if (!result$penalty_metadata_available) {
