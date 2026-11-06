@@ -220,7 +220,61 @@ run_pipeline_tests <- function(project_root = locate_repo_root()) {
   )
   cat("[PASS] 8. Standalone synthetic artifact naming and unrounded tour sum verified\n")
 
-  cat("\nALL 8 PIPELINE INTEGRATION TEST SUITES PASSED.\n")
+  # 9. Synthetic forced-penalty return fixture executes full pipeline with penalized closing edge
+  forced_csv <- file.path(project_root, "data", "synthetic", "q2", "forced_penalty_return.csv")
+  stopifnot(
+    file.exists(forced_csv),
+    isTRUE(is_known_synthetic_fixture(forced_csv, project_root)),
+    identical(get_known_synthetic_fixture_key(forced_csv, project_root), "forced_penalty_return")
+  )
+
+  forced_out_dir <- file.path(temp_dir, "forced_out")
+  forced_proc_dir <- file.path(temp_dir, "forced_proc")
+  res_forced <- inspect_q2_inputs(
+    project_root = project_root,
+    input_path = forced_csv,
+    start_point = "P1",
+    is_explicit = TRUE,
+    output_dir = forced_out_dir,
+    processed_dir = forced_proc_dir,
+    verbose = FALSE
+  )
+  stopifnot(
+    identical(res_forced$status, "completed"),
+    isTRUE(res_forced$is_synthetic),
+    identical(res_forced$synthetic_key, "forced_penalty_return"),
+    identical(length(res_forced$q2b$route), 11L),
+    setequal(res_forced$q2b$route[1:10], paste0("P", 1:10)),
+    identical(res_forced$q2b$route[[1L]], "P1"),
+    identical(res_forced$q2b$route[[11L]], "P1"),
+    identical(res_forced$q2b$route, c("P1", "P3", "P6", "P10", "P8", "P4", "P2", "P7", "P9", "P5", "P1")),
+    identical(nrow(res_forced$q2b$edge_table), 10L),
+    # Closing edge is P5 -> P1 and marked penalized
+    identical(res_forced$q2b$edge_table$origin[[10L]], "P5"),
+    identical(res_forced$q2b$edge_table$destination[[10L]], "P1"),
+    isTRUE(res_forced$q2b$edge_table$is_penalized[[10L]]),
+    identical(res_forced$q2b$edge_table$cost_minutes[[10L]], 265),
+    # Preceding intermediate edges are unpenalized
+    all(!res_forced$q2b$edge_table$is_penalized[1:9]),
+    # Q2(a) status into P1 is closure_only
+    all(res_forced$q2a$route_status_matrix[paste0("P", 2:10), "P1"] == "closure_only"),
+    isTRUE(res_forced$q2b$has_penalized_edges),
+    identical(nrow(res_forced$q2b$penalized_edges), 1L),
+    abs(res_forced$q2b$total_cost - sum(res_forced$q2b$edge_table$cost_minutes)) < 1e-9,
+    identical(round(res_forced$q2b$total_cost, 4), 384.9750),
+    identical(round(res_forced$q2b$total_cost, 2), 384.98),
+    grepl("artificial penalty", res_forced$q2b$total_cost_label, ignore.case = TRUE),
+    # Output filenames use distinct synthetic prefix without overwriting default synthetic fixture
+    file.exists(file.path(forced_out_dir, "synthetic_forced_penalty_return_q2a_cost_matrix.csv")),
+    file.exists(file.path(forced_out_dir, "synthetic_forced_penalty_return_q2a_cost_matrix_heatmap.png")),
+    file.exists(file.path(forced_out_dir, "synthetic_forced_penalty_return_q2b_tour_edges.csv")),
+    file.exists(file.path(forced_out_dir, "synthetic_forced_penalty_return_q2b_tour_summary.csv")),
+    file.exists(file.path(forced_proc_dir, "synthetic_forced_penalty_return_filtered.csv")),
+    !file.exists(file.path(forced_out_dir, "synthetic_q2a_cost_matrix.csv"))
+  )
+  cat("[PASS] 9. Synthetic forced-penalty return fixture executes with penalized closing edge\n")
+
+  cat("\nALL 9 PIPELINE INTEGRATION TEST SUITES PASSED.\n")
   invisible(TRUE)
 }
 

@@ -16,13 +16,22 @@ required_travel_columns <- c(
   "Weather", "Time_of_Day", "Travel_Time_Minutes"
 )
 
-# Checks if input_path resolves to the repository's known synthetic development fixture.
-is_known_synthetic_fixture <- function(input_path, project_root = NULL) {
+# Returns named relative paths of known synthetic development fixtures.
+known_synthetic_fixtures <- function() {
+  c(
+    default = file.path("data", "synthetic", "q2", "ahmad_travel_logs.csv"),
+    forced_penalty_return = file.path("data", "synthetic", "q2", "forced_penalty_return.csv")
+  )
+}
+
+# Returns fixture key ("default" or "forced_penalty_return") if input_path matches
+# a known synthetic development fixture, or NULL otherwise.
+get_known_synthetic_fixture_key <- function(input_path, project_root = NULL) {
   if (missing(input_path) || !is.character(input_path) || length(input_path) != 1L) {
-    return(FALSE)
+    return(NULL)
   }
   if (!file.exists(input_path)) {
-    return(FALSE)
+    return(NULL)
   }
 
   if (is.null(project_root)) {
@@ -40,18 +49,25 @@ is_known_synthetic_fixture <- function(input_path, project_root = NULL) {
   }
 
   if (is.null(project_root)) {
-    return(FALSE)
+    return(NULL)
   }
 
-  known_path <- file.path(project_root, "data", "synthetic", "q2", "ahmad_travel_logs.csv")
-  if (!file.exists(known_path)) {
-    return(FALSE)
+  norm_input <- normalizePath(input_path, winslash = "/", mustWork = TRUE)
+  fixtures <- known_synthetic_fixtures()
+  for (name in names(fixtures)) {
+    fixture_path <- file.path(project_root, fixtures[[name]])
+    if (file.exists(fixture_path) &&
+        identical(norm_input, normalizePath(fixture_path, winslash = "/", mustWork = TRUE))) {
+      return(name)
+    }
   }
 
-  identical(
-    normalizePath(input_path, winslash = "/", mustWork = TRUE),
-    normalizePath(known_path, winslash = "/", mustWork = TRUE)
-  )
+  NULL
+}
+
+# Checks if input_path resolves to one of the repository's known synthetic development fixtures.
+is_known_synthetic_fixture <- function(input_path, project_root = NULL) {
+  !is.null(get_known_synthetic_fixture_key(input_path, project_root = project_root))
 }
 
 # Constructs the 10 x 10 cost matrix and penalty metadata from a travel log CSV.
@@ -359,6 +375,8 @@ export_q2a_artifacts <- function(q2a_result,
     "ahmad_travel_logs_filtered.csv"
   } else if (prefix == "synthetic_q2a") {
     "synthetic_ahmad_travel_logs_filtered.csv"
+  } else if (prefix == "synthetic_forced_penalty_return_q2a") {
+    "synthetic_forced_penalty_return_filtered.csv"
   } else {
     paste0(prefix, "_travel_logs_filtered.csv")
   }
@@ -483,7 +501,8 @@ run_q2a_cli <- function(arguments = commandArgs(trailingOnly = TRUE)) {
     return(invisible(list(status = "missing_input", path = raw_input_path)))
   }
 
-  is_synthetic <- is_known_synthetic_fixture(input_path)
+  synth_key <- get_known_synthetic_fixture_key(input_path)
+  is_synthetic <- !is.null(synth_key)
   if (is_synthetic) {
     message("Q2(a): EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
     message("Q2(a): (Results are from synthetic development data, NOT unseen grading data)")
@@ -513,9 +532,19 @@ run_q2a_cli <- function(arguments = commandArgs(trailingOnly = TRUE)) {
   attr(unlabelled_view, "has_usable_history") <- NULL
   print(unlabelled_view)
 
-  prefix <- if (is_synthetic) "synthetic_q2a" else "q2a"
+  prefix <- if (is.null(synth_key)) {
+    "q2a"
+  } else if (identical(synth_key, "forced_penalty_return")) {
+    "synthetic_forced_penalty_return_q2a"
+  } else {
+    "synthetic_q2a"
+  }
   heatmap_title <- if (is_synthetic) {
-    "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+    if (identical(synth_key, "forced_penalty_return")) {
+      "Synthetic Forced Penalty Return: 75th-percentile travel cost (minutes)"
+    } else {
+      "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+    }
   } else {
     "Rainy Morning: 75th-percentile travel cost (minutes)"
   }

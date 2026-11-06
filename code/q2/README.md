@@ -50,10 +50,13 @@ Rscript code/run.R q2 "C:/path/to/ahmad_travel_logs.csv"
 # Run pipeline on the explicit development synthetic dataset
 Rscript code/run.R q2 "data/synthetic/q2/ahmad_travel_logs.csv"
 
+# Run pipeline on the synthetic forced-penalty return dataset
+Rscript code/run.R q2 "data/synthetic/q2/forced_penalty_return.csv"
+
 # Standalone Q2(a) runner (builds cost matrix, filtered log, and heatmap)
 Rscript code/q2/q2a_cost_matrix.R "data/synthetic/q2/ahmad_travel_logs.csv"
 
-# Pipeline integration & input-selection tests (8 test suites)
+# Pipeline integration & input-selection tests (9 test suites)
 Rscript code/q2/test_pipeline.R
 
 # Q2(a) cleaning & matrix tests (12 test suites)

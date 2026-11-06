@@ -89,8 +89,9 @@ inspect_q2_inputs <- function(project_root,
     return(invisible(list(status = "missing_input", path = input_path, q2_ready = TRUE)))
   }
 
-  # Identify whether the input is the development synthetic fixture
-  is_synthetic_fixture <- is_known_synthetic_fixture(input_path, project_root = project_root)
+  # Identify whether the input is a known development synthetic fixture
+  synth_key <- get_known_synthetic_fixture_key(input_path, project_root = project_root)
+  is_synthetic_fixture <- !is.null(synth_key)
 
   if (is_synthetic_fixture) {
     message("Q2: EXPLICIT SYNTHETIC DEVELOPMENT INPUT: ", input_path)
@@ -105,10 +106,26 @@ inspect_q2_inputs <- function(project_root,
   # 2. Export Q2(a) artifacts
   out_dir <- if (!is.null(output_dir)) output_dir else file.path(project_root, "outputs", "q2")
   proc_dir <- if (!is.null(processed_dir)) processed_dir else file.path(project_root, "data", "processed", "q2")
-  prefix_q2a <- if (is_synthetic_fixture) "synthetic_q2a" else "q2a"
-  prefix_q2b <- if (is_synthetic_fixture) "synthetic_q2b_tour" else "q2b_tour"
+  prefix_q2a <- if (is.null(synth_key)) {
+    "q2a"
+  } else if (identical(synth_key, "forced_penalty_return")) {
+    "synthetic_forced_penalty_return_q2a"
+  } else {
+    "synthetic_q2a"
+  }
+  prefix_q2b <- if (is.null(synth_key)) {
+    "q2b_tour"
+  } else if (identical(synth_key, "forced_penalty_return")) {
+    "synthetic_forced_penalty_return_q2b_tour"
+  } else {
+    "synthetic_q2b_tour"
+  }
   heatmap_title <- if (is_synthetic_fixture) {
-    "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+    if (identical(synth_key, "forced_penalty_return")) {
+      "Synthetic Forced Penalty Return: 75th-percentile travel cost (minutes)"
+    } else {
+      "Synthetic Rainy Morning: 75th-percentile travel cost (minutes)"
+    }
   } else {
     "Rainy Morning: 75th-percentile travel cost (minutes)"
   }
@@ -134,6 +151,7 @@ inspect_q2_inputs <- function(project_root,
     status = "completed",
     path = input_path,
     is_synthetic = is_synthetic_fixture,
+    synthetic_key = synth_key,
     q2a = q2a_res,
     q2b = q2b_res,
     route_status_matrix = q2a_res$route_status_matrix,
